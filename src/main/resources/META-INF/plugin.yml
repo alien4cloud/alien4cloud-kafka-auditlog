@@ -1,0 +1,11 @@
+id: alien4cloud-kafka-auditlog
+name: Kafka AuditLog
+version: ${project.version}
+description: >
+  This plugin sends Auditlog informations on Kafka
+configuration_class: alien4cloud.plugin.kafka.auditlog.PluginConfiguration
+component_descriptors:
+  - bean_name: kafka-logger
+    name: Kafka Logger
+    description: >
+      Alien Plugin thats sends log informations on Kafka
