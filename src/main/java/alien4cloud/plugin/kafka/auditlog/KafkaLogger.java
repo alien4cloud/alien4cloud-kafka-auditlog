@@ -184,23 +184,29 @@ public class KafkaLogger {
             hostname = "N/A";
         }
 
-        Properties props = new Properties();
-        props.put("bootstrap.servers",configuration.getBootstrapServers());
+        if (configuration.getBootstrapServers() == null || configuration.getSite() == null || configuration.getTopic() == null) {
+            log.error("Kafka Logger is not configured.");
+        } else {
+            Properties props = new Properties();
+            props.put("bootstrap.servers", configuration.getBootstrapServers());
 
-        producer = new KafkaProducer<String, String>(props,new StringSerializer(),new StringSerializer());
+            producer = new KafkaProducer<String, String>(props, new StringSerializer(), new StringSerializer());
 
-        eventService.addListener(listener);
-        log.info("Kafka Logger registered");
+            eventService.addListener(listener);
+            log.info("Kafka Logger registered");
+        }
     }
 
     @PreDestroy
     public void term() {
-        eventService.removeListener(listener);
+        if (producer != null) {
+            eventService.removeListener(listener);
 
-        // Close the kafka producer
-        producer.close();
+            // Close the kafka producer
+            producer.close();
 
-        log.info("Kafka Logger unregistered");
+            log.info("Kafka Logger unregistered");
+        }
     }
 
     /**
