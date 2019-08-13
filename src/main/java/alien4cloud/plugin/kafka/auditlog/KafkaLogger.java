@@ -215,7 +215,7 @@ public class KafkaLogger {
      * @return
      */
     private boolean filterTag(Tag tag) {
-        return tag.getName().equals("A4C_META_Type de composant") && tag.getValue().equals("Module");
+        return tag.getName().equals(configuration.getModuleTagName()) && tag.getValue().equals(configuration.getModuleTagValue());
     }
 
     private void doPublish(String json) {
