@@ -95,7 +95,7 @@ public class KafkaLogger {
                 stamp,
                 deployment,
                 buildId(deployment),
-                inputEvent instanceof PaaSWorkflowStartedEvent ? "JOB_START" : "JOB_END",
+                inputEvent instanceof PaaSWorkflowStartedEvent ? "MODULE_START" : "MODULE_END",
                 String.format("Execution Job %s",deployment.getSourceName())
             );
     }
@@ -105,7 +105,7 @@ public class KafkaLogger {
         String eventName;
 
         switch(inputEvent.getDeploymentStatus()) {
-            case INIT_DEPLOYMENT:
+            case DEPLOYMENT_IN_PROGRESS:
                 eventName = "DEPLOY_BEGIN";
                 break;
             case DEPLOYED:
@@ -113,6 +113,12 @@ public class KafkaLogger {
                 break;
             case FAILURE:
                 eventName = "DEPLOY_ERROR";
+                break;
+            case UNDEPLOYMENT_IN_PROGRESS:
+                eventName = "UNDEPLOY_BEGIN";
+                break;
+            case UNDEPLOYED:
+                eventName = "UNDEPLOY_SUCCESS";
                 break;
             default:
                 return;
@@ -122,7 +128,7 @@ public class KafkaLogger {
 
         Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
 
-        if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE)) {
+        if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.UNDEPLOYED)) {
             DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
 
             for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
