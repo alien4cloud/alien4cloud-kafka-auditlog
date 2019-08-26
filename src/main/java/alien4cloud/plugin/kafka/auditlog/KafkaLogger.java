@@ -1,15 +1,18 @@
 package alien4cloud.plugin.kafka.auditlog;
 
 import alien4cloud.application.ApplicationEnvironmentService;
+import alien4cloud.common.MetaPropertiesService;
 import alien4cloud.deployment.DeploymentRuntimeStateService;
 import alien4cloud.deployment.DeploymentService;
 
+import alien4cloud.model.common.MetaPropertyTarget;
 import alien4cloud.model.common.Tag;
 import alien4cloud.model.deployment.Deployment;
 import alien4cloud.model.deployment.DeploymentTopology;
 import alien4cloud.paas.IPaasEventListener;
 import alien4cloud.paas.IPaasEventService;
 import alien4cloud.paas.model.*;
+import alien4cloud.tosca.context.ToscaContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Maps;
@@ -17,6 +20,7 @@ import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
+import org.alien4cloud.tosca.model.types.NodeType;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -39,6 +43,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Predicate;
 
 @Slf4j
 @Component("kafka-logger")
@@ -58,6 +63,9 @@ public class KafkaLogger {
 
     @Inject
     private KafkaConfiguration configuration;
+
+    @Inject
+    private MetaPropertiesService metaPropertiesService;
 
     private Map<String,Expression> bindings = Maps.newHashMap();
 
@@ -131,9 +139,19 @@ public class KafkaLogger {
         if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.UNDEPLOYED)) {
             DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
 
-            for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
-                if (node.getTags() != null && node.getTags().stream().anyMatch(this::filterTag)) {
-                    publish(stamp,deployment,buildId(deployment,node),eventName,String.format("Deploys node %s",node.getName()));
+            String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
+            if (metaId != null) {
+                try {
+                    ToscaContext.init(toplogy.getDependencies());
+
+                    for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
+                        NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
+                        if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
+                            publish(stamp, deployment, buildId(deployment, node), eventName, String.format("Deploys node %s", node.getName()));
+                        }
+                    }
+                } finally {
+                    ToscaContext.destroy();
                 }
             }
         }
@@ -213,15 +231,6 @@ public class KafkaLogger {
 
             log.info("Kafka Logger unregistered");
         }
-    }
-
-    /**
-     * Tag Predictate for nodes filtering
-     * @param tag
-     * @return
-     */
-    private boolean filterTag(Tag tag) {
-        return tag.getName().equals(configuration.getModuleTagName()) && tag.getValue().equals(configuration.getModuleTagValue());
     }
 
     private void doPublish(String json) {
