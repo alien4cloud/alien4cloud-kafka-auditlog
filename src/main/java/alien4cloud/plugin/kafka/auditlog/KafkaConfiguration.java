@@ -23,7 +23,7 @@ public class KafkaConfiguration {
 
     private String topic = "a4c";
 
-    private String moduleTagName = "A4C_META_Type de composant";
+    private String moduleTagName = "Type de composant";
 
     private String moduleTagValue = "Module";
 }
