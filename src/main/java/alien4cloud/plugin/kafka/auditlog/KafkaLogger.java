@@ -132,7 +132,7 @@ public class KafkaLogger {
             DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
 
             for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
-                if (node.getTags().stream().anyMatch(this::filterTag)) {
+                if (node.getTags() != null && node.getTags().stream().anyMatch(this::filterTag)) {
                     publish(stamp,deployment,buildId(deployment,node),eventName,String.format("Deploys node %s",node.getName()));
                 }
             }
