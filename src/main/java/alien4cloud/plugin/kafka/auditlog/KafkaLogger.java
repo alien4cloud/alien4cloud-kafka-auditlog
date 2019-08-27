@@ -80,83 +80,96 @@ public class KafkaLogger {
         public void eventHappened(AbstractMonitorEvent event) {
             if (event instanceof PaaSDeploymentStatusMonitorEvent) {
                 handleEvent((PaaSDeploymentStatusMonitorEvent) event);
-            } else if ((event instanceof PaaSWorkflowStartedEvent)
-                   || (event instanceof PaaSWorkflowFinishedEvent)) {
-                handleWorkflowEvent((AbstractPaaSWorkflowMonitorEvent) event);
+            } else if (event instanceof PaaSWorkflowStartedEvent) {
+                handleWorkflowEvent((PaaSWorkflowStartedEvent) event);
             }
         }
 
         @Override
         public boolean canHandle(AbstractMonitorEvent event) {
-            return     (event instanceof PaaSDeploymentStatusMonitorEvent)
-                    || (event instanceof PaaSWorkflowStartedEvent)
-                    || (event instanceof PaaSWorkflowFinishedEvent);
+            return (event instanceof PaaSDeploymentStatusMonitorEvent) || (event instanceof PaaSWorkflowStartedEvent);
         }
     };
 
-    private void handleWorkflowEvent(AbstractPaaSWorkflowMonitorEvent inputEvent) {
-        OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(inputEvent.getDate()), ZoneId.systemDefault());
+    private void handleWorkflowEvent(PaaSWorkflowStartedEvent inputEvent) {
+        String phaseName;
+        String eventName;
 
+        OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(inputEvent.getDate()), ZoneId.systemDefault());
         Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
 
-        publish(
-                stamp,
-                deployment,
-                buildId(deployment),
-                inputEvent instanceof PaaSWorkflowStartedEvent ? "MODULE_START" : "MODULE_END",
-                String.format("Execution Job %s",deployment.getSourceName())
+        if (inputEvent.getWorkflowName().equals("install")) {
+            eventName="DEPLOY_BEGIN";
+            phaseName="Deploys";
+        } else if (inputEvent.getWorkflowName().equals("uninstall")) {
+            eventName="UNDEPLOY_BEGIN";
+            phaseName="Undeploys";
+        } else {
+            return;
+        }
+
+        if (inputEvent.getWorkflowName().equals("uninstall") || inputEvent.getWorkflowName().equals("install")) {
+            publish(
+                    stamp,
+                    deployment,
+                    buildId(deployment),
+                    eventName,
+                    String.format("%s the application %s",phaseName,deployment.getSourceName())
             );
+        }
     }
 
 
     private void handleEvent(PaaSDeploymentStatusMonitorEvent inputEvent) {
         String eventName;
+        String phaseName;
 
         switch(inputEvent.getDeploymentStatus()) {
-            case DEPLOYMENT_IN_PROGRESS:
-                eventName = "DEPLOY_BEGIN";
-                break;
             case DEPLOYED:
                 eventName = "DEPLOY_SUCCESS";
+                phaseName = "Deploys";
                 break;
             case FAILURE:
                 eventName = "DEPLOY_ERROR";
-                break;
-            case UNDEPLOYMENT_IN_PROGRESS:
-                eventName = "UNDEPLOY_BEGIN";
+                phaseName = "Deploys";
                 break;
             case UNDEPLOYED:
                 eventName = "UNDEPLOY_SUCCESS";
+                phaseName = "Undeploys";
                 break;
             default:
                 return;
         }
 
+        Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
         OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(inputEvent.getDate()), ZoneId.systemDefault());
 
-        Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
+        // We must send an event per module
+        DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
 
-        if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.UNDEPLOYED)) {
-            DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
+        if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE)) {
+            publish(stamp,deployment,buildId(deployment),eventName,String.format("%s the application %s",phaseName,deployment.getSourceName()));
+        }
 
-            String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
-            if (metaId != null) {
-                try {
-                    ToscaContext.init(toplogy.getDependencies());
+        String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
+        if (metaId != null) {
+            try {
+                ToscaContext.init(toplogy.getDependencies());
 
-                    for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
-                        NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
-                        if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
-                            publish(stamp, deployment, buildId(deployment, node), eventName, String.format("Deploys node %s", node.getName()));
-                        }
+                for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
+                    NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
+                    if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
+                        publish(stamp, deployment, buildId(deployment, node), eventName, String.format("%s the module %s",phaseName,node.getName()));
                     }
-                } finally {
-                    ToscaContext.destroy();
                 }
+            } finally {
+                ToscaContext.destroy();
             }
         }
 
-        publish(stamp,deployment,buildId(deployment),eventName,String.format("Deploys the application %s",deployment.getSourceName()));
+        if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.UNDEPLOYED)) {
+            publish(stamp,deployment,buildId(deployment),eventName,String.format("%s the application %s",phaseName,deployment.getSourceName()));
+        }
     }
 
     private void publish(OffsetDateTime stamp, Deployment deployment, List<Object> id, String event, String message) {
@@ -189,9 +202,6 @@ public class KafkaLogger {
         List result = buildId(deployment);
         result.add(buildIdElement("nom",node.getName()));
 
-        for (Tag tag : node.getTags()) {
-            result.add(buildIdElement(tag.getName(),tag.getValue()));
-        }
         return result;
     }
 
@@ -200,6 +210,7 @@ public class KafkaLogger {
         result.put(name,value);
         return result;
     }
+
     @PostConstruct
     public void init() {
         try {
