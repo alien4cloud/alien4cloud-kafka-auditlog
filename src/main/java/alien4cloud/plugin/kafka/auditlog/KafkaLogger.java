@@ -21,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
 import org.alien4cloud.tosca.model.types.NodeType;
+import org.alien4cloud.tosca.normative.constants.NormativeTypesConstant;
+import org.alien4cloud.tosca.utils.NodeTypeUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -82,14 +84,46 @@ public class KafkaLogger {
                 handleEvent((PaaSDeploymentStatusMonitorEvent) event);
             } else if (event instanceof PaaSWorkflowStartedEvent) {
                 handleWorkflowEvent((PaaSWorkflowStartedEvent) event);
+            } else if (event instanceof WorkflowStepStartedEvent) {
+                handleWorkflowStepEvent((WorkflowStepStartedEvent) event);
             }
         }
 
         @Override
         public boolean canHandle(AbstractMonitorEvent event) {
-            return (event instanceof PaaSDeploymentStatusMonitorEvent) || (event instanceof PaaSWorkflowStartedEvent);
+            return (event instanceof PaaSDeploymentStatusMonitorEvent)
+                    || (event instanceof PaaSWorkflowStartedEvent)
+                    || (event instanceof WorkflowStepStartedEvent);
         }
     };
+
+    private void handleWorkflowStepEvent(WorkflowStepStartedEvent inputEvent) {
+        if (inputEvent.getOperationName().equals("tosca.interfaces.node.lifecycle.runnable.submit")) {
+            Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
+            DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
+
+            try {
+                ToscaContext.init(toplogy.getDependencies());
+
+                NodeTemplate node = toplogy.getUnprocessedNodeTemplates().get(inputEvent.getNodeId());
+                NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
+
+                if (type.getDerivedFrom().contains("org.alien4cloud.nodes.Job")) {
+                    OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(inputEvent.getDate()), ZoneId.systemDefault());
+                    publish(
+                            stamp,
+                            deployment,
+                            buildId(deployment),
+                            "JOB_START",
+                            String.format("Job started on application %s / node %s",deployment.getSourceName(),inputEvent.getNodeId())
+                    );
+                }
+            } finally {
+                ToscaContext.destroy();
+            }
+            log.info("WORKFLOWSTEP: {}",inputEvent);
+        }
+    }
 
     private void handleWorkflowEvent(PaaSWorkflowStartedEvent inputEvent) {
         String phaseName;
