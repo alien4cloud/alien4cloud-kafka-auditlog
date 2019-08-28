@@ -4,38 +4,32 @@ import alien4cloud.application.ApplicationEnvironmentService;
 import alien4cloud.common.MetaPropertiesService;
 import alien4cloud.deployment.DeploymentRuntimeStateService;
 import alien4cloud.deployment.DeploymentService;
-
 import alien4cloud.model.common.MetaPropertyTarget;
-import alien4cloud.model.common.Tag;
 import alien4cloud.model.deployment.Deployment;
 import alien4cloud.model.deployment.DeploymentTopology;
 import alien4cloud.paas.IPaasEventListener;
 import alien4cloud.paas.IPaasEventService;
 import alien4cloud.paas.model.*;
+import alien4cloud.topology.TopologyServiceCore;
 import alien4cloud.tosca.context.ToscaContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Maps;
-
 import lombok.extern.slf4j.Slf4j;
-
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
+import org.alien4cloud.tosca.model.templates.Topology;
 import org.alien4cloud.tosca.model.types.NodeType;
-import org.alien4cloud.tosca.normative.constants.NormativeTypesConstant;
-import org.alien4cloud.tosca.utils.NodeTypeUtils;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.elasticsearch.common.collect.Lists;
 import org.springframework.expression.Expression;
-
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.inject.Inject;
-
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Instant;
@@ -45,7 +39,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.function.Predicate;
 
 @Slf4j
 @Component("kafka-logger")
@@ -56,6 +49,9 @@ public class KafkaLogger {
 
     @Inject
     private DeploymentService deploymentService;
+
+    @Inject
+    private TopologyServiceCore topologyServiceCore;
 
     @Inject
     private ApplicationEnvironmentService environmentService;
@@ -101,9 +97,10 @@ public class KafkaLogger {
         if (inputEvent.getOperationName().equals("tosca.interfaces.node.lifecycle.runnable.submit")) {
             Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
             DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
+            Topology initialTopology = topologyServiceCore.getOrFail(toplogy.getInitialTopologyId());
 
             try {
-                ToscaContext.init(toplogy.getDependencies());
+                ToscaContext.init(initialTopology.getDependencies());
 
                 NodeTemplate node = toplogy.getUnprocessedNodeTemplates().get(inputEvent.getNodeId());
                 NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
@@ -183,6 +180,7 @@ public class KafkaLogger {
 
         // We must send an event per module
         DeploymentTopology toplogy = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
+        Topology initialTopology = topologyServiceCore.getOrFail(toplogy.getInitialTopologyId());
 
         if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE)) {
             publish(stamp,deployment,buildId(deployment),eventName,String.format("%s the application %s",phaseName,deployment.getSourceName()));
@@ -191,7 +189,7 @@ public class KafkaLogger {
         String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
         if (metaId != null) {
             try {
-                ToscaContext.init(toplogy.getDependencies());
+                ToscaContext.init(initialTopology.getDependencies());
 
                 for (NodeTemplate node : toplogy.getUnprocessedNodeTemplates().values()) {
                     NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
