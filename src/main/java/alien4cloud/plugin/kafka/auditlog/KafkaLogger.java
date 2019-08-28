@@ -114,7 +114,7 @@ public class KafkaLogger {
                             stamp,
                             deployment,
                             buildId(deployment),
-                            "JOB_START",
+                            "JOB_SUBMIT",
                             String.format("Job started on application %s / node %s",deployment.getSourceName(),inputEvent.getNodeId())
                     );
                 }
@@ -132,6 +132,9 @@ public class KafkaLogger {
         OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(inputEvent.getDate()), ZoneId.systemDefault());
         Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
 
+        if (inputEvent.getWorkflowName() == null) {
+            return;
+        }
         if (inputEvent.getWorkflowName().equals("install")) {
             eventName="DEPLOY_BEGIN";
             phaseName="Deploys";
