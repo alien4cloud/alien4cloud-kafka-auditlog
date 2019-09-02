@@ -194,7 +194,7 @@ public class KafkaLogger {
                 for (NodeTemplate node : topology.getUnprocessedNodeTemplates().values()) {
                     NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
                     if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
-                        publish(stamp, deployment, buildId(deployment, node), eventName, String.format("%s the module %s",phaseName,node.getName()));
+                        publish(stamp, deployment, buildId(deployment, node), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
                     }
                 }
             } finally {
