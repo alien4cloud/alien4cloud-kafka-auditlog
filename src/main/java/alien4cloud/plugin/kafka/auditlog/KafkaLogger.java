@@ -96,13 +96,12 @@ public class KafkaLogger {
     private void handleWorkflowStepEvent(WorkflowStepStartedEvent inputEvent) {
         if (inputEvent.getOperationName().equals("tosca.interfaces.node.lifecycle.runnable.submit")) {
             Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
-            DeploymentTopology topology = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
-            Topology initialTopology = topologyServiceCore.getOrFail(topology.getInitialTopologyId());
+            Topology initialTopology = deploymentRuntimeStateService.getUnprocessedTopology(inputEvent.getDeploymentId());
 
             try {
                 ToscaContext.init(initialTopology.getDependencies());
 
-                NodeTemplate node = topology.getUnprocessedNodeTemplates().get(inputEvent.getNodeId());
+                NodeTemplate node = initialTopology.getNodeTemplates().get(inputEvent.getNodeId());
                 NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
 
                 if (type.getDerivedFrom().contains("org.alien4cloud.nodes.Job")) {
@@ -179,8 +178,13 @@ public class KafkaLogger {
         OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(inputEvent.getDate()), ZoneId.systemDefault());
 
         // We must send an event per module
-        DeploymentTopology topology = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
-        Topology initialTopology = topologyServiceCore.getOrFail(topology.getInitialTopologyId());
+        //DeploymentTopology topology = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
+        //Topology initialTopology = topologyServiceCore.getOrFail(topology.getInitialTopologyId());
+        Topology initialTopology = deploymentRuntimeStateService.getUnprocessedTopology(deployment.getId());
+        if (initialTopology == null) {
+            log.warn("Unprocessed Topology not found for deployment <{}>",deployment.getId());
+            return;
+        }
 
         if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.DEPLOYED) || inputEvent.getDeploymentStatus().equals(DeploymentStatus.FAILURE)) {
             publish(stamp,deployment,buildId(deployment),eventName,String.format("%s the application %s",phaseName,deployment.getSourceName()));
@@ -191,7 +195,7 @@ public class KafkaLogger {
             try {
                 ToscaContext.init(initialTopology.getDependencies());
 
-                for (NodeTemplate node : topology.getUnprocessedNodeTemplates().values()) {
+                for (NodeTemplate node : initialTopology.getNodeTemplates().values()) {
                     NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
                     if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
                         publish(stamp, deployment, buildId(deployment, node), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
