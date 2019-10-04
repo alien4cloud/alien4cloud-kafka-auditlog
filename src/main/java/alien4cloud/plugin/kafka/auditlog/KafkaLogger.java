@@ -23,9 +23,10 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.elasticsearch.common.collect.Lists;
 import org.springframework.expression.Expression;
 import org.springframework.stereotype.Component;
+
+import com.google.common.collect.Lists;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
