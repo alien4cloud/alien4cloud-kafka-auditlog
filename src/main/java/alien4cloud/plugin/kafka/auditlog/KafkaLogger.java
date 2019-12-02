@@ -12,13 +12,16 @@ import alien4cloud.paas.IPaasEventService;
 import alien4cloud.paas.model.*;
 import alien4cloud.topology.TopologyServiceCore;
 import alien4cloud.tosca.context.ToscaContext;
+import alien4cloud.utils.PropertyUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
+import org.alien4cloud.plugin.kubernetes.modifier.KubernetesAdapterModifier;
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
 import org.alien4cloud.tosca.model.templates.Topology;
 import org.alien4cloud.tosca.model.types.NodeType;
+import org.alien4cloud.tosca.utils.TopologyNavigationUtil;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -39,6 +42,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.Iterator;
 
 @Slf4j
 @Component("kafka-logger")
@@ -190,6 +195,7 @@ public class KafkaLogger {
             publish(stamp,deployment,buildId(deployment),eventName,String.format("%s the application %s",phaseName,deployment.getSourceName()));
         }
 
+        log.info("passe par ici et "+ configuration.getModuleTagName() + " et " +MetaPropertyTarget.COMPONENT);
         String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
         if (metaId != null) {
             try {
@@ -198,8 +204,51 @@ public class KafkaLogger {
                 for (NodeTemplate node : initialTopology.getNodeTemplates().values()) {
                     NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
                     if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
-                        publish(stamp, deployment, buildId(deployment, node), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
-                    }
+
+                        Set<NodeTemplate> containerNodes = TopologyNavigationUtil.getNodesOfType(initialTopology, KubernetesAdapterModifier.K8S_TYPES_KUBECONTAINER, true);
+                        Set<NodeTemplate>  namespaceNodes = TopologyNavigationUtil.getNodesOfType(initialTopology, KubernetesAdapterModifier.K8S_TYPES_KUBE_NAMESPACE, true);
+                        String kubeDeploymentName = null ;
+                        String kubeNamespace = null ;
+
+                        if (containerNodes != null && !containerNodes.isEmpty() && containerNodes.size() > 0) {
+
+                            log.info("Node KubeContainer found");
+
+                            DeploymentTopology deployedTopology = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
+
+                            Iterator<NodeTemplate> propertiesValues = deployedTopology.getNodeTemplates().values().iterator() ;
+
+                            while(propertiesValues.hasNext()) {
+                                NodeTemplate nodeTemplate = propertiesValues.next();
+                                if (nodeTemplate.getType().equals("org.alien4cloud.kubernetes.api.types.DeploymentResource")) {
+                                    kubeDeploymentName = PropertyUtil.getScalarValue(nodeTemplate.getProperties().get("resource_id")) ;
+                                    break;
+                                }
+                            }
+
+                            Iterator<NodeTemplate> propertiesNamespaceValues = deployedTopology.getNodeTemplates().values().iterator() ;
+                            while(propertiesNamespaceValues.hasNext()) {
+                                NodeTemplate nodeNamespaceTemplate = propertiesNamespaceValues.next();
+                                if (nodeNamespaceTemplate.getType().equals("org.alien4cloud.kubernetes.api.types.SimpleResource")) {
+                                    kubeNamespace = PropertyUtil.getScalarValue(nodeNamespaceTemplate.getProperties().get("resource_id")) ;
+                                    break;
+                                }
+                            }
+                        }
+                        else {
+                            log.info("Node KubeContainer not found");
+                        }
+
+                        if(kubeNamespace!= null){
+                            publish(stamp, deployment, buildId(deployment, node, kubeDeploymentName,kubeNamespace,"Kubernetes"), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
+                        } else if(kubeDeploymentName!= null){
+                            publish(stamp, deployment, buildId(deployment, node, kubeDeploymentName,"Kubernetes"), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
+                        } else {
+                            log.info("Node KubeContainer not found");
+                            publish(stamp, deployment, buildId(deployment, node), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
+                        }
+
+                      }
                 }
             } finally {
                 ToscaContext.destroy();
@@ -240,6 +289,25 @@ public class KafkaLogger {
     private List<Object> buildId(Deployment deployment,NodeTemplate node) {
         List result = buildId(deployment);
         result.add(buildIdElement("nom",node.getName()));
+
+        return result;
+    }
+
+    private List<Object> buildId(Deployment deployment,NodeTemplate node, String deploymentName, String namespace, String executor) {
+        List result = buildId(deployment);
+        result.add(buildIdElement("nom",node.getName()));
+        result.add(buildIdElement("KubeDeployment",deploymentName));
+        result.add(buildIdElement("KubeNamespace",namespace));
+        result.add(buildIdElement("Moteur d'exécution",executor));
+
+        return result;
+    }
+
+    private List<Object> buildId(Deployment deployment,NodeTemplate node, String deploymentName, String executor) {
+        List result = buildId(deployment);
+        result.add(buildIdElement("nom",node.getName()));
+        result.add(buildIdElement("KubeDeployment",deploymentName));
+        result.add(buildIdElement("Moteur d'exécution",executor));
 
         return result;
     }
