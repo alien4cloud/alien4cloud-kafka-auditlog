@@ -1,4 +1,4 @@
-package alien4cloud.plugin.kafka.auditlog;
+package alien4cloud.plugin.supervision;
 
 import alien4cloud.application.ApplicationEnvironmentService;
 import alien4cloud.common.MetaPropertiesService;
@@ -17,10 +17,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
-import org.alien4cloud.plugin.kubernetes.modifier.KubernetesAdapterModifier;
 import alien4cloud.model.common.Tag;
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
-import org.alien4cloud.tosca.model.templates.RelationshipTemplate;
 import org.alien4cloud.tosca.model.templates.Topology;
 import org.alien4cloud.tosca.model.types.NodeType;
 import org.alien4cloud.tosca.utils.TopologyNavigationUtil;
@@ -44,15 +42,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
-import java.util.Iterator;
-import java.util.Collection;
 import java.util.function.Predicate;
 
 
 @Slf4j
 @Component("kafka-logger")
-public class KafkaLogger {
+public class SupervisionLogger {
 
     @Inject
     private IPaasEventService eventService;
@@ -70,7 +65,7 @@ public class KafkaLogger {
     private DeploymentRuntimeStateService deploymentRuntimeStateService;
 
     @Inject
-    private KafkaConfiguration configuration;
+    private SupervisionConfiguration configuration;
 
     @Inject
     private MetaPropertiesService metaPropertiesService;

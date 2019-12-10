@@ -1,4 +1,4 @@
-package alien4cloud.plugin.kafka.auditlog;
+package alien4cloud.plugin.supervision;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -14,8 +14,8 @@ import java.util.Map;
 @Setter
 @Component
 @EnableConfigurationProperties
-@ConfigurationProperties(prefix = "kafka")
-public class KafkaConfiguration {
+@ConfigurationProperties(prefix = "supervision")
+public class SupervisionConfiguration {
 
     private String bootstrapServers;
 
@@ -26,4 +26,6 @@ public class KafkaConfiguration {
     private String moduleTagName = "Type de composant";
 
     private String moduleTagValue = "Module";
+
+    private String metaPrefix = "supervision";
 }
