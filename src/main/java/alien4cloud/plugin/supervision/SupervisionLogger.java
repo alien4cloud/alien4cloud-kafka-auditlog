@@ -1,4 +1,4 @@
-package alien4cloud.plugin.kafka.auditlog;
+package alien4cloud.plugin.supervision;
 
 import alien4cloud.application.ApplicationEnvironmentService;
 import alien4cloud.common.MetaPropertiesService;
@@ -12,13 +12,16 @@ import alien4cloud.paas.IPaasEventService;
 import alien4cloud.paas.model.*;
 import alien4cloud.topology.TopologyServiceCore;
 import alien4cloud.tosca.context.ToscaContext;
+import alien4cloud.utils.PropertyUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
+import alien4cloud.model.common.Tag;
 import org.alien4cloud.tosca.model.templates.NodeTemplate;
 import org.alien4cloud.tosca.model.templates.Topology;
 import org.alien4cloud.tosca.model.types.NodeType;
+import org.alien4cloud.tosca.utils.TopologyNavigationUtil;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -40,10 +43,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Predicate;
+
 
 @Slf4j
 @Component("kafka-logger")
-public class KafkaLogger {
+public class SupervisionLogger {
 
     @Inject
     private IPaasEventService eventService;
@@ -61,7 +66,7 @@ public class KafkaLogger {
     private DeploymentRuntimeStateService deploymentRuntimeStateService;
 
     @Inject
-    private KafkaConfiguration configuration;
+    private SupervisionConfiguration configuration;
 
     @Inject
     private MetaPropertiesService metaPropertiesService;
@@ -73,6 +78,10 @@ public class KafkaLogger {
     private String hostname;
 
     Producer<String,String> producer;
+
+    // A4C K8S resource types defined in org.alien4cloud.plugin.kubernetes.modifier
+    public static final String K8S_TYPES_DEPLOYMENT_RESOURCE = "org.alien4cloud.kubernetes.api.types.DeploymentResource";
+    public static final String K8S_TYPES_SIMPLE_RESOURCE = "org.alien4cloud.kubernetes.api.types.SimpleResource";
 
     IPaasEventListener listener = new IPaasEventListener() {
         @Override
@@ -191,15 +200,19 @@ public class KafkaLogger {
             publish(stamp,deployment,buildId(deployment),eventName,String.format("%s the application %s",phaseName,deployment.getSourceName()));
         }
 
+        DeploymentTopology deployedTopology = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
         String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
         if (metaId != null) {
             try {
                 ToscaContext.init(initialTopology.getDependencies());
-
                 for (NodeTemplate node : initialTopology.getNodeTemplates().values()) {
                     NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
                     if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
-                        publish(stamp, deployment, buildId(deployment, node), "MODULE_" + eventName, String.format("%s the module %s",phaseName,node.getName()));
+                        // Module found
+                        String deploymentName = findDeploymentName(node,initialTopology,deployedTopology);
+                        String namespaceName = findNamespaceName(deployedTopology);
+
+                        publish(stamp, deployment, buildId(deployment, node, deploymentName, namespaceName), "MODULE_" + eventName, String.format("%s the module %s", phaseName, node.getName()));
                     }
                 }
             } finally {
@@ -238,11 +251,48 @@ public class KafkaLogger {
         return Lists.newArrayList(buildIdElement("id_A4C",deployment.getId()));
     }
 
-    private List<Object> buildId(Deployment deployment,NodeTemplate node) {
+    private List<Object> buildId(Deployment deployment,NodeTemplate node, String deploymentName, String namespace) {
         List result = buildId(deployment);
-        result.add(buildIdElement("nom",node.getName()));
 
+        result.add(buildIdElement("nom",node.getName()));
+        if (deploymentName != null) {
+            result.add(buildIdElement("KubeDeployment",deploymentName));
+        }
+        if (namespace != null) {
+            result.add(buildIdElement("KubeNamespace",namespace));
+        }
+        if (deploymentName != null) {
+            result.add(buildIdElement("Moteur d'exécution","Kubernetes"));
+        }
         return result;
+    }
+
+    private String findDeploymentName(NodeTemplate nodeContainer,Topology initialToplogy,Topology deployedTopology) {
+        NodeTemplate nodeDeployment = TopologyNavigationUtil.getImmediateHostTemplate(initialToplogy,nodeContainer);
+        if (nodeDeployment != null) {
+            for (NodeTemplate node : TopologyNavigationUtil.getNodesOfType(deployedTopology, K8S_TYPES_DEPLOYMENT_RESOURCE, true)) {
+                List<Tag> tags = node.getTags();
+                if (tags != null && tags.stream().anyMatch(buildTagPredicate(nodeDeployment))) {
+                    return PropertyUtil.getScalarValue(node.getProperties().get("resource_id"));
+                }
+            }
+        }
+        return null;
+    }
+
+    private Predicate<Tag> buildTagPredicate(NodeTemplate node) {
+        final String nodeName = node.getName();
+        return tag -> tag.getName().equals("a4c_kubernetes-adapter-modifier_ReplacementNodeFor") && tag.getValue().equals(nodeName);
+    }
+
+    private String findNamespaceName(Topology deployedToplogy) {
+        // find Namespace related  SimpleResource
+        for (NodeTemplate node : TopologyNavigationUtil.getNodesOfType(deployedToplogy,K8S_TYPES_SIMPLE_RESOURCE,true)) {
+            if (PropertyUtil.getScalarValue(node.getProperties().get("resource_type")).equals("namespaces")) {
+                return PropertyUtil.getScalarValue(node.getProperties().get("resource_id"));
+            }
+        }
+        return null;
     }
 
     private Map<String,Object> buildIdElement(String name,String value) {

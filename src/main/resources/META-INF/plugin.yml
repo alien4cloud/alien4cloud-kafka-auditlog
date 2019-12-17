@@ -1,11 +1,16 @@
-id: alien4cloud-kafka-auditlog
-name: Kafka AuditLog
+id: alien4cloud-supervision
+name: Alien4Cloud Supervision
 version: ${project.version}
 description: >
-  This plugin sends Auditlog informations on Kafka
-configuration_class: alien4cloud.plugin.kafka.auditlog.PluginConfiguration
+  Supervision Plugin for Alien4Cloud
+configuration_class: alien4cloud.plugin.supervision.PluginConfiguration
 component_descriptors:
   - bean_name: kafka-logger
-    name: Kafka Logger
+    name: Logger Supervision
     description: >
-      Alien Plugin thats sends log informations on Kafka
+      Logger that send events to Supervision
+  - bean_name: kubernetes-supervision-modifier
+    name: Kubernetes Supervion Modifier.
+    description: >
+      This topology modifier adds supervision annotations to kubernetes resources.
+      Insert this modifier to post-matched-node-setup phase.
