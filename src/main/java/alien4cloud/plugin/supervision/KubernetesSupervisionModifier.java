@@ -9,6 +9,7 @@ import alien4cloud.tosca.context.ToscaContext;
 import alien4cloud.utils.PropertyUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.alien4cloud.alm.deployment.configuration.flow.FlowExecutionContext;
 import org.alien4cloud.alm.deployment.configuration.flow.TopologyModifierSupport;
@@ -61,6 +62,10 @@ public class KubernetesSupervisionModifier extends TopologyModifierSupport {
     public void process(Topology deployedTopology, FlowExecutionContext context) {
         Topology initialTopology = (Topology) context.getExecutionCache().get("INITIAL_TOPOLOGY");
 
+        if (log.isDebugEnabled()) {
+            log.debug("Supervion Modifier processing topology");
+        }
+
         if (initialTopology == null) {
             log.error("Can't find initial topology");
             return;
@@ -91,6 +96,10 @@ public class KubernetesSupervisionModifier extends TopologyModifierSupport {
 
         NodeTemplate initialDeployment = getInitialDeployment(deploymentNode,initialTopology);
 
+        if (log.isDebugEnabled()) {
+            log.debug("Adding labels & annotations to {}", deploymentNode.getName());
+        }
+
         // Create context by hand because it needs to be done on initialTopology
         ToscaContext.Context toscaContext = new ToscaContext.Context(initialTopology.getDependencies());
 
@@ -98,7 +107,6 @@ public class KubernetesSupervisionModifier extends TopologyModifierSupport {
         if (metaAppId != null && application.getMetaProperties() != null) {
             String value = application.getMetaProperties().get(metaAppId);
             if (value != null) {
-                log.info("Must Add annotation {}",value);
                 addAnnotationOnSparkJob(deploymentNode,String.format("%s.domaine", configuration.getMetaPrefix()),String.format("%s/%s", CAS_USAGE, value));
             }
         }
@@ -137,12 +145,26 @@ public class KubernetesSupervisionModifier extends TopologyModifierSupport {
     }
 
     private void addAnnotationOnSparkJob(NodeTemplate deploymentNode,String key,String value) {
-        ComplexPropertyValue prop = (ComplexPropertyValue) deploymentNode.getProperties().get("annotations");
+        if (log.isDebugEnabled()) {
+            log.debug("Adding annotation {} = {} on {}", key, value, deploymentNode.getName());
+        }
+        ComplexPropertyValue prop = (ComplexPropertyValue) deploymentNode.getProperties().computeIfAbsent("annotations",k -> {
+            ComplexPropertyValue p = new ComplexPropertyValue();
+            p.setValue(Maps.newHashMap());
+            return p;
+        });
         prop.getValue().put(key,value);
     }
 
     private void addLabelOnSparkJob(NodeTemplate deploymentNode,String key,String value) {
-        ComplexPropertyValue prop = (ComplexPropertyValue) deploymentNode.getProperties().get("labels");
+        if (log.isDebugEnabled()) {
+            log.debug("Adding Label {} = {} on {}",key,value,deploymentNode.getName());
+        }
+        ComplexPropertyValue prop = (ComplexPropertyValue) deploymentNode.getProperties().computeIfAbsent("labels",k -> {
+            ComplexPropertyValue p = new ComplexPropertyValue();
+            p.setValue(Maps.newHashMap());
+            return p;
+        });
         prop.getValue().put(key,value);
     }
 
