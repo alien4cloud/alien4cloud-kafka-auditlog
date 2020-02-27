@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @Getter
@@ -28,4 +29,6 @@ public class SupervisionConfiguration {
     private String moduleTagValue = "Module";
 
     private String metaPrefix = "supervision";
+
+    private Map<String,String> producerProperties = new HashMap<String,String>();
 }

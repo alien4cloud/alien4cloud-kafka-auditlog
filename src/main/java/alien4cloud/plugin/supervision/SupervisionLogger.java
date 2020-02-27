@@ -314,8 +314,13 @@ public class SupervisionLogger {
         } else {
             Properties props = new Properties();
             props.put("bootstrap.servers", configuration.getBootstrapServers());
+            props.putAll (configuration.getProducerProperties());
 
-            producer = new KafkaProducer<String, String>(props, new StringSerializer(), new StringSerializer());
+            try {
+               producer = new KafkaProducer<String, String>(props, new StringSerializer(), new StringSerializer());
+            } catch (Exception e) {
+               log.error ("Cannot connect to Kafka ({})", e.getMessage());
+            }
 
             eventService.addListener(listener);
             log.info("Kafka Logger registered");
