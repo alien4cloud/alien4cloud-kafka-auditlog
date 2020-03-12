@@ -86,12 +86,16 @@ public class SupervisionLogger {
     IPaasEventListener listener = new IPaasEventListener() {
         @Override
         public void eventHappened(AbstractMonitorEvent event) {
-            if (event instanceof PaaSDeploymentStatusMonitorEvent) {
-                handleEvent((PaaSDeploymentStatusMonitorEvent) event);
-            } else if (event instanceof PaaSWorkflowStartedEvent) {
-                handleWorkflowEvent((PaaSWorkflowStartedEvent) event);
-            } else if (event instanceof WorkflowStepStartedEvent) {
-                handleWorkflowStepEvent((WorkflowStepStartedEvent) event);
+            try {
+                if (event instanceof PaaSDeploymentStatusMonitorEvent) {
+                    handleEvent((PaaSDeploymentStatusMonitorEvent) event);
+                } else if (event instanceof PaaSWorkflowStartedEvent) {
+                    handleWorkflowEvent((PaaSWorkflowStartedEvent) event);
+                } else if (event instanceof WorkflowStepStartedEvent) {
+                    handleWorkflowStepEvent((WorkflowStepStartedEvent) event);
+                }
+            } catch(RuntimeException e) {
+                log.error("Exception in event handler",e);
             }
         }
 
@@ -201,23 +205,27 @@ public class SupervisionLogger {
         }
 
         DeploymentTopology deployedTopology = deploymentRuntimeStateService.getRuntimeTopology(deployment.getId());
-        String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
-        if (metaId != null) {
-            try {
-                ToscaContext.init(initialTopology.getDependencies());
-                for (NodeTemplate node : initialTopology.getNodeTemplates().values()) {
-                    NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
-                    if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
-                        // Module found
-                        String deploymentName = findDeploymentName(node,initialTopology,deployedTopology);
-                        String namespaceName = findNamespaceName(deployedTopology);
+        if (deployedTopology != null) {
+            String metaId = metaPropertiesService.getMetapropertykeyByName(configuration.getModuleTagName(),MetaPropertyTarget.COMPONENT);
+            if (metaId != null) {
+                try {
+                    ToscaContext.init(initialTopology.getDependencies());
+                    for (NodeTemplate node : initialTopology.getNodeTemplates().values()) {
+                        NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
+                        if (type.getMetaProperties() != null && configuration.getModuleTagValue().equals(type.getMetaProperties().get(metaId))) {
+                            // Module found
+                            String deploymentName = findDeploymentName(node, initialTopology, deployedTopology);
+                            String namespaceName = findNamespaceName(deployedTopology);
 
-                        publish(stamp, deployment, buildId(deployment, node, deploymentName, namespaceName), "MODULE_" + eventName, String.format("%s the module %s", phaseName, node.getName()));
+                            publish(stamp, deployment, buildId(deployment, node, deploymentName, namespaceName), "MODULE_" + eventName, String.format("%s the module %s", phaseName, node.getName()));
+                        }
                     }
+                } finally {
+                    ToscaContext.destroy();
                 }
-            } finally {
-                ToscaContext.destroy();
             }
+        } else {
+            log.error("Deployed topology is no longer available. Cannot send module events for deployment {}",deployment.getId());
         }
 
         if (inputEvent.getDeploymentStatus().equals(DeploymentStatus.UNDEPLOYED)) {
