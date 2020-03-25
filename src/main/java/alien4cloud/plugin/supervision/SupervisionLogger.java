@@ -40,6 +40,8 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -76,6 +78,8 @@ public class SupervisionLogger {
     private ObjectMapper mapper = new ObjectMapper();
 
     private String hostname;
+
+    private List<String> undeploysInProgress = Collections.synchronizedList(new ArrayList<String>());
 
     Producer<String,String> producer;
 
@@ -151,6 +155,13 @@ public class SupervisionLogger {
         } else if (inputEvent.getWorkflowName().equals("uninstall")) {
             eventName="UNDEPLOY_BEGIN";
             phaseName="Undeploys";
+            synchronized(undeploysInProgress) {
+               if (undeploysInProgress.contains(inputEvent.getDeploymentId())) {
+                  return;
+               } else {
+                  undeploysInProgress.add(inputEvent.getDeploymentId());
+               }
+            }
         } else {
             return;
         }
@@ -179,10 +190,16 @@ public class SupervisionLogger {
             case FAILURE:
                 eventName = "DEPLOY_ERROR";
                 phaseName = "Deploys";
+                synchronized(undeploysInProgress) {
+                   undeploysInProgress.remove (inputEvent.getDeploymentId());
+                }
                 break;
             case UNDEPLOYED:
                 eventName = "UNDEPLOY_SUCCESS";
                 phaseName = "Undeploys";
+                synchronized(undeploysInProgress) {
+                   undeploysInProgress.remove (inputEvent.getDeploymentId());
+                }
                 break;
             default:
                 return;
