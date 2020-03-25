@@ -348,7 +348,9 @@ public class SupervisionLogger {
     }
 
     private void doPublish(String json) {
-        producer.send(new ProducerRecord<>(configuration.getTopic(),null,json));
-        log.debug("=> KAFKA[{}] : {}",configuration.getTopic(),json);
+        if (producer != null) {
+            producer.send(new ProducerRecord<>(configuration.getTopic(), null, json));
+            log.debug("=> KAFKA[{}] : {}", configuration.getTopic(), json);
+        }
     }
 }
