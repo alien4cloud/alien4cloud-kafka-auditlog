@@ -52,6 +52,9 @@ import java.util.function.Predicate;
 @Component("kafka-logger")
 public class SupervisionLogger {
 
+    private static final String OPERATION_SUBMIT = "tosca.interfaces.node.lifecycle.runnable.submit";
+    private static final String OPERATION_RUN = "tosca.interfaces.node.lifecycle.runnable.run";
+
     @Inject
     private IPaasEventService eventService;
 
@@ -97,6 +100,8 @@ public class SupervisionLogger {
                     handleWorkflowEvent((PaaSWorkflowStartedEvent) event);
                 } else if (event instanceof WorkflowStepStartedEvent) {
                     handleWorkflowStepEvent((WorkflowStepStartedEvent) event);
+                } else if (event instanceof AbstractTaskEndedEvent) {
+                    handleTaskEndedEvent((AbstractTaskEndedEvent) event);
                 }
             } catch(RuntimeException e) {
                 log.error("Exception in event handler",e);
@@ -107,12 +112,48 @@ public class SupervisionLogger {
         public boolean canHandle(AbstractMonitorEvent event) {
             return (event instanceof PaaSDeploymentStatusMonitorEvent)
                     || (event instanceof PaaSWorkflowStartedEvent)
-                    || (event instanceof WorkflowStepStartedEvent);
+                    || (event instanceof WorkflowStepStartedEvent)
+                    || (event instanceof AbstractTaskEndedEvent);
         }
     };
 
+    private void handleTaskEndedEvent(AbstractTaskEndedEvent event) {
+        String kafkaEvent = "JOB_END_SUCCESS";
+        String jobStatus = "success";
+
+        if (event.getOperationName().equals(OPERATION_RUN)) {
+            Deployment deployment = deploymentService.get(event.getDeploymentId());
+            Topology initialTopology = deploymentRuntimeStateService.getUnprocessedTopology(event.getDeploymentId());
+
+            try {
+                ToscaContext.init(initialTopology.getDependencies());
+
+                NodeTemplate node = initialTopology.getNodeTemplates().get(event.getNodeId());
+                NodeType type = ToscaContext.getOrFail(NodeType.class, node.getType());
+
+                if (event instanceof TaskFailedEvent) {
+                    kafkaEvent = "JOB_END_ERROR";
+                    jobStatus = "error";
+                }
+
+                if (type.getDerivedFrom().contains("org.alien4cloud.nodes.Job")) {
+                    OffsetDateTime stamp = OffsetDateTime.ofInstant(Instant.ofEpochMilli(event.getDate()), ZoneId.systemDefault());
+                    publish(
+                            stamp,
+                            deployment,
+                            buildId(deployment),
+                            kafkaEvent,
+                            String.format("Job ended on %s on application %s / node %s",jobStatus,deployment.getSourceName(),event.getNodeId())
+                    );
+                }
+            } finally {
+                ToscaContext.destroy();
+            }
+        }
+    }
+
     private void handleWorkflowStepEvent(WorkflowStepStartedEvent inputEvent) {
-        if (inputEvent.getOperationName().equals("tosca.interfaces.node.lifecycle.runnable.submit")) {
+        if (inputEvent.getOperationName().equals(OPERATION_SUBMIT)) {
             Deployment deployment = deploymentService.get(inputEvent.getDeploymentId());
             Topology initialTopology = deploymentRuntimeStateService.getUnprocessedTopology(inputEvent.getDeploymentId());
 
@@ -135,7 +176,6 @@ public class SupervisionLogger {
             } finally {
                 ToscaContext.destroy();
             }
-            log.info("WORKFLOWSTEP: {}",inputEvent);
         }
     }
 
